@@ -1,122 +1,152 @@
 /**
  * nCino Forms Gen Syntax Validator
- * Validates and parses nCino Forms Gen conditional syntax with {{}} blocks
+ * Validates single-line input with {{}} blocks
  * 
  * Format:
- * {{IF="(A) OR (B AND C)"}}
- * {{COND="A" FIELD="Object.Field_c" IS="value"}}
- * {{SHOW_ROUTE}}
- * {{ENDIF}}
+ * {{IF="condition"}}{{COND="A" FIELD="field" IS="value"}}{{SHOW_ROUTE}}{{ENDIF}}
+ * 
+ * Rules:
+ * - Input is single line (no newlines)
+ * - Check for leading/trailing spaces
+ * - No spaces between }} and {{
+ * - First block must be IF
+ * - Following blocks must be COND (with FIELD and IS/NOT)
+ * - Before last block must be SHOW_ROUTE or HIDE_ROUTE
+ * - Last block must be ENDIF
+ * - Values in "" should not have leading/trailing spaces
  */
 
-// Valid field types in nCino
-const VALID_FIELD_TYPES = [
-  'Text', 'Email', 'Phone', 'Number', 'Date', 'DateTime', 'Time',
-  'Boolean', 'Checkbox', 'Radio', 'Dropdown', 'MultiSelect',
-  'TextArea', 'Rich Text', 'Currency', 'Percent', 'URL'
-]
-
-// Valid block types
-const VALID_BLOCK_TYPES = ['IF', 'COND', 'SHOW_ROUTE', 'ENDIF', 'SHOW_FIELD', 'HIDE_FIELD']
-
-// Valid operators for conditions
-const VALID_OPERATORS = ['IS', 'IS_NOT', 'CONTAINS', 'NOT_CONTAINS', 'GREATER_THAN', 'LESS_THAN']
-
-// Valid properties for fields
-const VALID_PROPERTIES = [
-  'type', 'required', 'readonly', 'hidden', 'maxlength', 'minlength',
-  'pattern', 'format', 'default', 'placeholder', 'description',
-  'helptext', 'validation', 'options', 'depends', 'conditional'
-]
+// Valid route types
+const VALID_ROUTES = ['SHOW_ROUTE', 'HIDE_ROUTE']
 
 /**
- * Main validation function for nCino Forms Gen syntax
+ * Main validation function - validates single line input
  */
 export function validateSyntax(input) {
-  if (!input || input.trim().length === 0) {
+  if (!input) {
     return []
   }
 
   const errors = []
-  const lines = input.split('\n')
-  let blockStack = [] // Track nested blocks
-  let conditionMap = new Map() // Track condition definitions
-  let ifLogic = null // Current IF block logic
 
-  lines.forEach((line, lineIndex) => {
-    const trimmed = line.trim()
-
-    // Skip empty lines and comments
-    if (trimmed.length === 0 || trimmed.startsWith('//')) {
-      return
-    }
-
-    // Check for block syntax {{...}}
-    if (trimmed.startsWith('{{') && trimmed.endsWith('}}')) {
-      const blockContent = trimmed.slice(2, -2).trim()
-      const blockErrors = validateBlock(blockContent, lineIndex + 1, line, conditionMap, blockStack)
-      errors.push(...blockErrors)
-
-      // Track block types for nesting validation
-      if (blockContent.startsWith('IF=')) {
-        blockStack.push({ type: 'IF', line: lineIndex + 1 })
-        ifLogic = blockContent
-      } else if (blockContent.startsWith('COND=')) {
-        if (blockStack.length === 0 || blockStack[blockStack.length - 1].type !== 'IF') {
-          errors.push({
-            severity: 'error',
-            message: 'COND block must be inside an IF block',
-            line: lineIndex + 1,
-            context: line,
-            suggestion: 'Place COND blocks after {{IF="..."}} and before {{ENDIF}}'
-          })
-        }
-      } else if (blockContent === 'ENDIF') {
-        if (blockStack.length === 0) {
-          errors.push({
-            severity: 'error',
-            message: 'ENDIF without matching IF block',
-            line: lineIndex + 1,
-            context: line,
-            suggestion: 'Ensure each ENDIF has a matching IF'
-          })
-        } else {
-          blockStack.pop()
-        }
-      } else if (blockContent === 'SHOW_ROUTE' || blockContent === 'SHOW_FIELD' || blockContent === 'HIDE_FIELD') {
-        if (blockStack.length === 0) {
-          errors.push({
-            severity: 'warning',
-            message: `${blockContent} block should be inside an IF block`,
-            line: lineIndex + 1,
-            context: line,
-            suggestion: `Place ${blockContent} after conditions and before ENDIF`
-          })
-        }
-      }
-    } else if (trimmed.length > 0) {
-      // Non-block lines should be plain text or field definitions
-      if (!trimmed.startsWith('//') && !trimmed.match(/^[A-Za-z_][\w\s]+$/)) {
-        errors.push({
-          severity: 'warning',
-          message: 'Line does not follow nCino syntax format',
-          line: lineIndex + 1,
-          context: line,
-          suggestion: 'Use {{BLOCK_TYPE="value"}} format or plain text descriptions'
-        })
-      }
-    }
-  })
-
-  // Check for unclosed blocks
-  if (blockStack.length > 0) {
+  // Check for leading space
+  if (input.length > 0 && input[0] === ' ') {
     errors.push({
       severity: 'error',
-      message: `${blockStack.length} unclosed block(s) - missing ENDIF`,
-      line: lines.length,
-      suggestion: 'Add {{ENDIF}} to close all IF blocks'
+      message: 'Input has leading space',
+      line: 1,
+      context: input,
+      suggestion: 'Remove space at the beginning'
     })
   }
+
+  // Check for trailing space
+  if (input.length > 0 && input[input.length - 1] === ' ') {
+    errors.push({
+      severity: 'error',
+      message: 'Input has trailing space',
+      line: 1,
+      context: input,
+      suggestion: 'Remove space at the end'
+    })
+  }
+
+  if (input.trim().length === 0) {
+    return errors
+  }
+
+  // Extract all {{}} blocks
+  const blockRegex = /\{\{[^}]*\}\}/g
+  const blocks = input.match(blockRegex) || []
+
+  if (blocks.length === 0) {
+    errors.push({
+      severity: 'error',
+      message: 'No {{}} blocks found in input',
+      line: 1,
+      context: input,
+      suggestion: 'Add at least IF and ENDIF blocks'
+    })
+    return errors
+  }
+
+  // Check for spaces between }} and {{
+  const spaceBetweenBlocks = /\}\}\s+\{\{/g
+  if (spaceBetweenBlocks.test(input)) {
+    errors.push({
+      severity: 'error',
+      message: 'Space found between }} and {{',
+      line: 1,
+      context: input,
+      suggestion: 'Use }}{{ without space'
+    })
+  }
+
+  // Validate number of blocks
+  if (blocks.length < 3) {
+    errors.push({
+      severity: 'error',
+      message: `Need at least 3 blocks (IF, COND, SHOW_ROUTE/HIDE_ROUTE, ENDIF). Found ${blocks.length}`,
+      line: 1,
+      context: input,
+      suggestion: 'Format: {{IF="..."}}{{COND="..."...}}{{SHOW_ROUTE or HIDE_ROUTE}}{{ENDIF}}'
+    })
+  }
+
+  // Validate first block is IF
+  if (blocks.length > 0) {
+    const firstBlockContent = blocks[0].slice(2, -2).trim()
+    if (!firstBlockContent.startsWith('IF=')) {
+      errors.push({
+        severity: 'error',
+        message: 'First block must be IF',
+        line: 1,
+        blockIndex: 1,
+        context: blocks[0],
+        suggestion: 'Start with {{IF="..."}}'
+      })
+    }
+  }
+
+  // Validate last block is ENDIF
+  if (blocks.length > 0) {
+    const lastBlockContent = blocks[blocks.length - 1].slice(2, -2).trim()
+    if (lastBlockContent !== 'ENDIF') {
+      errors.push({
+        severity: 'error',
+        message: 'Last block must be ENDIF',
+        line: 1,
+        blockIndex: blocks.length,
+        context: blocks[blocks.length - 1],
+        suggestion: 'End with {{ENDIF}}'
+      })
+    }
+  }
+
+  // Validate second-to-last block is SHOW_ROUTE or HIDE_ROUTE
+  if (blocks.length > 1) {
+    const secondLastBlockContent = blocks[blocks.length - 2].slice(2, -2).trim()
+    if (!VALID_ROUTES.includes(secondLastBlockContent)) {
+      errors.push({
+        severity: 'error',
+        message: 'Second to last block must be SHOW_ROUTE or HIDE_ROUTE',
+        line: 1,
+        blockIndex: blocks.length - 1,
+        context: blocks[blocks.length - 2],
+        suggestion: 'Use {{SHOW_ROUTE}} or {{HIDE_ROUTE}}'
+      })
+    }
+  }
+
+  // Validate each block
+  blocks.forEach((block, blockIndex) => {
+    const blockErrors = validateBlock(block, blockIndex + 1, input)
+    errors.push(...blockErrors)
+  })
+
+  // Validate COND blocks structure
+  const condErrors = validateCondBlocksStructure(blocks)
+  errors.push(...condErrors)
 
   return errors
 }
@@ -124,80 +154,70 @@ export function validateSyntax(input) {
 /**
  * Validate a single block (content inside {{...}})
  */
-function validateBlock(blockContent, lineNumber, originalLine, conditionMap, blockStack) {
+function validateBlock(block, blockIndex, fullInput) {
   const errors = []
+  const blockContent = block.slice(2, -2)
 
-  // Check for proper spacing and braces
-  if (!/^[A-Z_]+=/.test(blockContent)) {
+  // Check block format - must start with uppercase letters
+  if (!/^\w+/.test(blockContent.trim())) {
     errors.push({
       severity: 'error',
-      message: 'Invalid block format - must start with BLOCK_TYPE=',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Use format: {{BLOCK_TYPE="value" PROPERTY="value"}}'
+      message: `Block ${blockIndex}: Invalid format`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Use format: {{KEYWORD="value"}}' 
     })
     return errors
   }
 
-  // Parse block type and content
-  const blockMatch = blockContent.match(/^([A-Z_]+)(.*)$/)
-  if (!blockMatch) {
-    errors.push({
-      severity: 'error',
-      message: 'Could not parse block type',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Ensure block starts with a valid block type'
-    })
-    return errors
-  }
-
-  const blockType = blockMatch[1]
-  const blockParams = blockMatch[2]
-
-  // Validate IF blocks
-  if (blockType === 'IF') {
-    const ifErrors = validateIFBlock(blockParams, lineNumber, originalLine)
+  const firstWord = blockContent.trim().split(/[\s=]/)[0]
+  
+  // Validate IF block
+  if (firstWord === 'IF') {
+    const ifErrors = validateIFBlock(blockContent, blockIndex, block)
     errors.push(...ifErrors)
   }
-  // Validate COND blocks
-  else if (blockType === 'COND') {
-    const condErrors = validateCONDBlock(blockParams, lineNumber, originalLine, conditionMap)
+  // Validate COND block
+  else if (firstWord === 'COND') {
+    const condErrors = validateCONDBlock(blockContent, blockIndex, block)
     errors.push(...condErrors)
   }
-  // Validate SHOW_ROUTE, SHOW_FIELD, HIDE_FIELD
-  else if (['SHOW_ROUTE', 'SHOW_FIELD', 'HIDE_FIELD'].includes(blockType)) {
-    // These blocks are typically standalone or with optional parameters
-    if (blockParams.trim().length > 0 && !blockParams.trim().startsWith('=')) {
+  // Validate SHOW_ROUTE or HIDE_ROUTE
+  else if (firstWord === 'SHOW_ROUTE' || firstWord === 'HIDE_ROUTE') {
+    if (blockContent.trim() !== firstWord) {
       errors.push({
-        severity: 'warning',
-        message: `${blockType} block has unexpected parameters`,
-        line: lineNumber,
-        context: originalLine,
-        suggestion: `${blockType} is typically used without parameters or as {{${blockType}}}}`
+        severity: 'error',
+        message: `Block ${blockIndex}: ${firstWord} should not have parameters`,
+        line: 1,
+        blockIndex: blockIndex,
+        context: block,
+        suggestion: `Use exactly: {{${firstWord}}}`
       })
     }
   }
   // Validate ENDIF
-  else if (blockType === 'ENDIF') {
-    if (blockParams.trim().length > 0) {
+  else if (firstWord === 'ENDIF') {
+    if (blockContent.trim() !== 'ENDIF') {
       errors.push({
         severity: 'error',
-        message: 'ENDIF should not have any parameters',
-        line: lineNumber,
-        context: originalLine,
+        message: `Block ${blockIndex}: ENDIF should not have parameters`,
+        line: 1,
+        blockIndex: blockIndex,
+        context: block,
         suggestion: 'Use exactly: {{ENDIF}}'
       })
     }
   }
-  // Unknown block type
+  // Unknown keyword
   else {
     errors.push({
       severity: 'error',
-      message: `Unknown block type: ${blockType}`,
-      line: lineNumber,
-      context: originalLine,
-      suggestion: `Valid types: ${VALID_BLOCK_TYPES.join(', ')}`
+      message: `Block ${blockIndex}: Unknown keyword "${firstWord}"`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Valid keywords: IF, COND, SHOW_ROUTE, HIDE_ROUTE, ENDIF'
     })
   }
 
@@ -205,479 +225,212 @@ function validateBlock(blockContent, lineNumber, originalLine, conditionMap, blo
 }
 
 /**
- * Validate IF block logic
+ * Validate IF block format
  */
-function validateIFBlock(params, lineNumber, originalLine) {
+function validateIFBlock(blockContent, blockIndex, block) {
   const errors = []
 
-  // Should have format: ="(A) OR (B AND C)"
-  const ifMatch = params.match(/^=\s*"(.+)"$/)
+  // IF must have format: IF="value"
+  const ifMatch = blockContent.match(/^IF\s*=\s*"([^"]*)"$/)
   if (!ifMatch) {
     errors.push({
       severity: 'error',
-      message: 'Invalid IF block format - must be: IF="(logic)"',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Example: {{IF="(A) OR (B AND C)"}}'
+      message: `Block ${blockIndex}: Invalid IF format`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Format: {{IF="condition"}}'
     })
     return errors
   }
 
-  const logic = ifMatch[1]
-
-  // Check for balanced parentheses
-  if (!isBalancedParentheses(logic)) {
+  const value = ifMatch[1]
+  
+  // Check for space before or after value in quotes
+  if (value !== value.trim()) {
     errors.push({
       severity: 'error',
-      message: 'Unbalanced parentheses in IF logic',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Ensure all opening ( have matching closing )'
+      message: `Block ${blockIndex}: IF value has leading or trailing space`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Remove spaces inside quotes'
     })
-  }
-
-  // Check for valid operators (OR, AND)
-  const operators = logic.match(/\b(OR|AND)\b/g) || []
-  const validOperators = operators.every(op => ['OR', 'AND'].includes(op))
-  if (!validOperators) {
-    errors.push({
-      severity: 'error',
-      message: 'Invalid operator in IF logic - only OR and AND are allowed',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Use only: (A) OR (B) AND (C) NOT (A OR B)'
-    })
-  }
-
-  // Check for valid condition references (A, B, C, etc.)
-  const conditions = logic.match(/[A-Z]/g) || []
-  if (conditions.length === 0) {
-    errors.push({
-      severity: 'error',
-      message: 'IF logic must reference conditions (A, B, C, etc.)',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Example: {{IF="(A) OR (B AND C)"}}'
-    })
-  }
-
-  // Check for extra spaces (strict format)
-  if (logic !== logic.replace(/\s+/g, ' ').trim()) {
-    const hasExtraSpaces = /\s{2,}/.test(logic)
-    const hasMissingSpaces = /\)\s*\(/.test(logic) // )( without space
-    
-    if (hasExtraSpaces) {
-      errors.push({
-        severity: 'error',
-        message: 'Extra spaces detected in IF logic',
-        line: lineNumber,
-        context: originalLine,
-        suggestion: 'Remove extra spaces. Example: {{IF="(A) OR (B)"}}'
-      })
-    }
   }
 
   return errors
 }
 
 /**
- * Validate COND block
+ * Validate COND block format
  */
-function validateCONDBlock(params, lineNumber, originalLine, conditionMap) {
+function validateCONDBlock(blockContent, blockIndex, block) {
   const errors = []
 
-  // Parse COND parameters: COND="A" FIELD="..." IS="..."
-  const condMatch = params.match(/^=\s*"([A-Z])"\s+FIELD=\s*"([^"]+)"\s+IS=\s*"([^"]*)"$/)
+  // COND format: COND="value" FIELD="value" (IS="value" OR NOT="value")
+  // Must have FIELD and either IS or NOT
+  
+  // Extract COND value
+  const condMatch = blockContent.match(/^COND\s*=\s*"([^"]*)"\s*FIELD\s*=\s*"([^"]*)"\s*(IS|NOT)\s*=\s*"([^"]*)"$/)
   
   if (!condMatch) {
     errors.push({
       severity: 'error',
-      message: 'Invalid COND block format',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Format: {{COND="A" FIELD="Object.Field_c" IS="value"}}'
+      message: `Block ${blockIndex}: Invalid COND format`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Format: {{COND="value" FIELD="value" IS="value"}} or {{COND="value" FIELD="value" NOT="value"}}'
     })
     return errors
   }
 
-  const [, condId, fieldName, value] = condMatch
+  const [, condValue, fieldValue, operator, operatorValue] = condMatch
 
-  // Validate condition ID is a single letter
-  if (!/^[A-Z]$/.test(condId)) {
+  // Check COND value for spaces
+  if (condValue !== condValue.trim()) {
     errors.push({
       severity: 'error',
-      message: `Invalid condition ID: "${condId}" - must be a single letter (A-Z)`,
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Use single letters: A, B, C, etc.'
+      message: `Block ${blockIndex}: COND value has leading or trailing space`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Remove spaces inside quotes'
     })
   }
 
-  // Validate field name format (Object.Field_c)
-  if (!fieldName.match(/^[a-zA-Z_]\w+\.[a-zA-Z_]\w+_c$/)) {
+  // Check FIELD value for spaces
+  if (fieldValue !== fieldValue.trim()) {
     errors.push({
       severity: 'error',
-      message: `Invalid field name: "${fieldName}"`,
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Format: ObjectName.FieldName_c (e.g., LLC_BI_Loanc.LLC_BIisRenewal_c)'
+      message: `Block ${blockIndex}: FIELD value has leading or trailing space`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Remove spaces inside quotes'
     })
   }
 
-  // Validate that IS has a value
-  if (value.length === 0) {
+  // Check operator value for spaces
+  if (operatorValue !== operatorValue.trim()) {
     errors.push({
       severity: 'error',
-      message: 'IS clause cannot be empty',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Provide a value: IS="true" or IS="some value"'
+      message: `Block ${blockIndex}: ${operator} value has leading or trailing space`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Remove spaces inside quotes'
     })
   }
 
-  // Track condition for use in IF logic
-  conditionMap.set(condId, { field: fieldName, value: value, line: lineNumber })
+  // Validate operator is IS or NOT
+  if (operator !== 'IS' && operator !== 'NOT') {
+    errors.push({
+      severity: 'error',
+      message: `Block ${blockIndex}: Invalid operator "${operator}"`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Use IS or NOT'
+    })
+  }
 
   return errors
 }
 
 /**
- * Check if parentheses are balanced
+ * Validate that COND blocks follow IF and come before SHOW_ROUTE/HIDE_ROUTE
  */
-function isBalancedParentheses(str) {
-  let count = 0
-  for (const char of str) {
-    if (char === '(') count++
-    else if (char === ')') count--
-    if (count < 0) return false
-  }
-  return count === 0
-}
-
-/**
- * Validate a single field line (legacy format support)
- */
-function validateFieldLine(fieldLine, lineNumber, originalLine) {
+function validateCondBlocksStructure(blocks) {
   const errors = []
-  const fieldContent = fieldLine.replace('Field:', '').trim()
 
-  if (!fieldContent) {
-    errors.push({
-      severity: 'error',
-      message: 'Field definition is empty',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Use format: Field: FieldName | Type: TypeName | ...'
-    })
-    return errors
-  }
+  let hasIF = false
+  let hasCondAfterIF = false
+  let hasRouteBlock = false
+  let hasEndif = false
 
-  const parts = fieldContent.split('|').map(p => p.trim())
-  const fieldName = parts[0]
+  for (let i = 0; i < blocks.length; i++) {
+    const blockContent = blocks[i].slice(2, -2).trim()
+    const firstWord = blockContent.split(/[\s=]/)[0]
 
-  if (!fieldName) {
-    errors.push({
-      severity: 'error',
-      message: 'Field name is missing',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'First part should be the field name'
-    })
-    return errors
-  }
-
-  // Validate field name format
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(fieldName)) {
-    errors.push({
-      severity: 'error',
-      message: `Invalid field name: "${fieldName}"`,
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Field names must start with a letter or underscore, contain only alphanumeric characters and underscores'
-    })
-  }
-
-  // Parse properties
-  const properties = {}
-  const usedProperties = new Set()
-
-  for (let i = 1; i < parts.length; i++) {
-    const prop = parts[i]
-    const [propName, propValue] = prop.split(':').map(p => p.trim())
-
-    if (!propName || !propValue) {
-      errors.push({
-        severity: 'warning',
-        message: `Malformed property: "${prop}"`,
-        line: lineNumber,
-        context: originalLine,
-        suggestion: 'Use format: PropertyName: Value'
-      })
-      continue
-    }
-
-    const propNameLower = propName.toLowerCase()
-
-    // Check for duplicate properties
-    if (usedProperties.has(propNameLower)) {
-      errors.push({
-        severity: 'warning',
-        message: `Duplicate property: "${propName}"`,
-        line: lineNumber,
-        context: originalLine
-      })
-    }
-    usedProperties.add(propNameLower)
-
-    // Validate Type property
-    if (propNameLower === 'type') {
-      if (!VALID_FIELD_TYPES.includes(propValue)) {
+    if (firstWord === 'IF') {
+      hasIF = true
+      hasCondAfterIF = false
+    } else if (firstWord === 'COND') {
+      if (!hasIF) {
         errors.push({
           severity: 'error',
-          message: `Invalid field type: "${propValue}"`,
-          line: lineNumber,
-          context: originalLine,
-          suggestion: `Valid types: ${VALID_FIELD_TYPES.slice(0, 5).join(', ')}, ...`
+          message: `Block ${i + 1}: COND block must come after IF block`,
+          line: 1,
+          blockIndex: i + 1,
+          context: blocks[i],
+          suggestion: 'Place all COND blocks after IF'
         })
       }
-      properties.type = propValue
-    }
-
-    // Validate Required property
-    else if (propNameLower === 'required') {
-      if (!['true', 'false'].includes(propValue.toLowerCase())) {
+      hasCondAfterIF = true
+    } else if (firstWord === 'SHOW_ROUTE' || firstWord === 'HIDE_ROUTE') {
+      if (!hasCondAfterIF) {
         errors.push({
           severity: 'error',
-          message: `Invalid Required value: "${propValue}"`,
-          line: lineNumber,
-          context: originalLine,
-          suggestion: 'Required must be "true" or "false"'
+          message: `Block ${i + 1}: At least one COND block must exist before ${firstWord}`,
+          line: 1,
+          blockIndex: i + 1,
+          context: blocks[i],
+          suggestion: 'Add COND block(s) between IF and SHOW_ROUTE/HIDE_ROUTE'
         })
       }
-    }
-
-    // Validate MaxLength property
-    else if (propNameLower === 'maxlength') {
-      if (isNaN(propValue)) {
+      hasRouteBlock = true
+    } else if (firstWord === 'ENDIF') {
+      if (!hasRouteBlock) {
         errors.push({
           severity: 'error',
-          message: `Invalid MaxLength value: "${propValue}"`,
-          line: lineNumber,
-          context: originalLine,
-          suggestion: 'MaxLength must be a number'
+          message: `Block ${i + 1}: SHOW_ROUTE or HIDE_ROUTE must exist before ENDIF`,
+          line: 1,
+          blockIndex: i + 1,
+          context: blocks[i],
+          suggestion: 'Add SHOW_ROUTE or HIDE_ROUTE before ENDIF'
         })
       }
+      hasEndif = true
     }
-
-    // Validate Pattern property
-    else if (propNameLower === 'pattern') {
-      try {
-        new RegExp(propValue)
-      } catch (e) {
-        errors.push({
-          severity: 'error',
-          message: `Invalid regex pattern: "${propValue}"`,
-          line: lineNumber,
-          context: originalLine,
-          suggestion: 'Ensure the pattern is a valid regular expression'
-        })
-      }
-    }
-  }
-
-  // Check if Type is defined
-  if (!properties.type) {
-    errors.push({
-      severity: 'warning',
-      message: 'Field Type is not specified',
-      line: lineNumber,
-      context: originalLine,
-      suggestion: 'Add "Type: FieldType" property'
-    })
   }
 
   return errors
 }
 
 /**
- * Parse syntax into structured data
+ * Parse syntax into structured data for display
  */
 export function parseSyntax(input) {
   if (!input || input.trim().length === 0) {
-    return { type: 'empty', sections: [], conditions: [], ifBlocks: [] }
+    return { type: 'empty', blocks: [], lineCount: 0 }
   }
 
-  // Detect if this is new format (with {{}}) or legacy format
-  const isNewFormat = /\{\{/.test(input)
+  // Extract blocks
+  const blockRegex = /\{\{[^}]*\}\}/g
+  const blocks = input.match(blockRegex) || []
 
-  if (isNewFormat) {
-    return parseConditionalSyntax(input)
-  } else {
-    return parseLegacySyntax(input)
+  if (blocks.length === 0) {
+    return { type: 'empty', blocks: [], lineCount: 0 }
   }
-}
 
-/**
- * Parse new conditional format with {{}} blocks
- */
-function parseConditionalSyntax(input) {
-  const lines = input.split('\n')
-  const ifBlocks = []
-  const conditions = new Map()
-  let currentIfBlock = null
-
-  lines.forEach((line, index) => {
-    const trimmed = line.trim()
-
-    if (trimmed.startsWith('{{') && trimmed.endsWith('}}')) {
-      const blockContent = trimmed.slice(2, -2).trim()
-
-      // Parse IF block
-      if (blockContent.startsWith('IF=')) {
-        const match = blockContent.match(/^IF=\s*"(.+)"$/)
-        if (match) {
-          currentIfBlock = {
-            logic: match[1],
-            conditions: [],
-            actions: [],
-            lineNumber: index + 1
-          }
-          ifBlocks.push(currentIfBlock)
-        }
-      }
-
-      // Parse COND block
-      else if (blockContent.startsWith('COND=')) {
-        const match = blockContent.match(/^COND=\s*"([A-Z])"\s+FIELD=\s*"([^"]+)"\s+IS=\s*"([^"]*)"$/)
-        if (match && currentIfBlock) {
-          const [, condId, fieldName, value] = match
-          const condition = {
-            id: condId,
-            field: fieldName,
-            value: value,
-            lineNumber: index + 1
-          }
-          currentIfBlock.conditions.push(condition)
-          conditions.set(condId, condition)
-        }
-      }
-
-      // Parse action blocks
-      else if (['SHOW_ROUTE', 'SHOW_FIELD', 'HIDE_FIELD'].includes(blockContent)) {
-        if (currentIfBlock) {
-          currentIfBlock.actions.push({
-            type: blockContent,
-            lineNumber: index + 1
-          })
-        }
-      }
-
-      // ENDIF
-      else if (blockContent === 'ENDIF') {
-        currentIfBlock = null
-      }
+  // Parse blocks
+  const parsedBlocks = blocks.map((block, index) => {
+    const content = block.slice(2, -2)
+    const firstWord = content.trim().split(/[\s=]/)[0]
+    
+    return {
+      index: index + 1,
+      type: firstWord,
+      rawContent: content,
+      displayBlock: block
     }
   })
 
   return {
-    type: 'conditional',
-    ifBlocks: ifBlocks,
-    conditions: Array.from(conditions.values())
-  }
-}
-
-/**
- * Parse legacy format (Section: Field:)
- */
-function parseLegacySyntax(input) {
-  const sections = []
-  const lines = input.split('\n')
-  let currentSection = null
-
-  lines.forEach(line => {
-    const trimmed = line.trim()
-
-    // Skip empty lines and comments
-    if (!trimmed || trimmed.startsWith('//')) {
-      return
-    }
-
-    // Parse Section
-    if (trimmed.startsWith('Section:')) {
-      const sectionName = trimmed.replace('Section:', '').trim()
-      currentSection = {
-        name: sectionName,
-        fields: []
-      }
-      sections.push(currentSection)
-    }
-
-    // Parse Field
-    else if (trimmed.startsWith('Field:') && currentSection) {
-      const fieldContent = trimmed.replace('Field:', '').trim()
-      const parts = fieldContent.split('|').map(p => p.trim())
-      
-      const fieldName = parts[0]
-      const field = {
-        name: fieldName,
-        required: false,
-        readonly: false,
-        hidden: false
-      }
-
-      // Parse properties
-      for (let i = 1; i < parts.length; i++) {
-        const [propName, propValue] = parts[i].split(':').map(p => p.trim())
-        const propNameLower = propName.toLowerCase()
-
-        switch (propNameLower) {
-          case 'type':
-            field.type = propValue
-            break
-          case 'required':
-            field.required = propValue.toLowerCase() === 'true'
-            break
-          case 'readonly':
-            field.readonly = propValue.toLowerCase() === 'true'
-            break
-          case 'hidden':
-            field.hidden = propValue.toLowerCase() === 'true'
-            break
-          case 'maxlength':
-            field.maxLength = propValue
-            break
-          case 'minlength':
-            field.minLength = propValue
-            break
-          case 'pattern':
-            field.pattern = propValue
-            break
-          case 'format':
-            field.format = propValue
-            break
-          case 'default':
-            field.default = propValue
-            break
-          case 'placeholder':
-            field.placeholder = propValue
-            break
-          case 'description':
-            field.description = propValue
-            break
-          case 'helptext':
-            field.helpText = propValue
-            break
-          default:
-            break
-        }
-      }
-
-      currentSection.fields.push(field)
-    }
-  })
-
-  return {
-    type: 'legacy',
-    sections: sections
+    type: 'single-line',
+    blocks: parsedBlocks,
+    lineCount: blocks.length,
+    rawInput: input
   }
 }
