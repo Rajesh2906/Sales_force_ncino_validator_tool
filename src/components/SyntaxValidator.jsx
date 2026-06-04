@@ -5,6 +5,7 @@ import '../styles/SyntaxValidator.css'
 
 export default function SyntaxValidator({ syntax, setSyntax, errors, setErrors }) {
   const [validating, setValidating] = useState(false)
+  const [copyFeedback, setCopyFeedback] = useState(false)
 
   const handleChange = (e) => {
     const value = e.target.value
@@ -25,18 +26,16 @@ export default function SyntaxValidator({ syntax, setSyntax, errors, setErrors }
     setErrors([])
   }
 
+  const handleCopy = () => {
+    if (syntax.trim()) {
+      navigator.clipboard.writeText(syntax)
+      setCopyFeedback(true)
+      setTimeout(() => setCopyFeedback(false), 2000)
+    }
+  }
+
   const handleExample = () => {
-    const exampleSyntax = `{{IF="(A) OR (B AND C) OR (B AND D) OR (B AND E) OR (B AND F) OR (B AND G) OR (A AND H)"}}
-{{COND="A" FIELD="LLC_BI_Loanc.LLC_BIisRenewal_c" IS="false"}}
-{{COND="B" FIELD="LLC_BI_Loanc.LLC_BIisRenewal_c" IS="true"}}
-{{COND="C" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Approval / Loan Committee"}}
-{{COND="D" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Post Closing Review"}}
-{{COND="E" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Booked"}}
-{{COND="F" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Final Review"}}
-{{COND="G" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Underwriting"}}
-{{COND="H" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Qualification"}}
-{{SHOW_ROUTE}}
-{{ENDIF}}`
+    const exampleSyntax = `{{IF="(A) OR (B AND C) OR (B AND D) OR (B AND E) OR (B AND F) OR (B AND G) OR (A AND H)"}}{{COND="A" FIELD="LLC_BI_Loanc.LLC_BIisRenewal_c" IS="false"}}{{COND="B" FIELD="LLC_BI_Loanc.LLC_BIisRenewal_c" IS="true"}}{{COND="C" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Approval / Loan Committee"}}{{COND="D" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Post Closing Review"}}{{COND="E" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Booked"}}{{COND="F" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Final Review"}}{{COND="G" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Underwriting"}}{{COND="H" FIELD="LLC_BI_Loanc.LLC_BIStage_c" IS="Qualification"}}{{SHOW_ROUTE}}{{ENDIF}}`
     
     setSyntax(exampleSyntax)
     setErrors([])
@@ -49,6 +48,9 @@ export default function SyntaxValidator({ syntax, setSyntax, errors, setErrors }
         <div className="header-actions">
           <button className="btn btn-example" onClick={handleExample} title="Load example syntax">
             <span className="icon">📋</span> Example
+          </button>
+          <button className="btn btn-copy" onClick={handleCopy} disabled={!syntax.trim()} title="Copy input text">
+            <span className="icon">{copyFeedback ? '✓' : '📋'}</span> {copyFeedback ? 'Copied' : 'Copy'}
           </button>
           <button className="btn btn-validate" onClick={handleValidate} disabled={validating || !syntax.trim()}>
             <span className="icon">✓</span> {validating ? 'Validating...' : 'Validate'}

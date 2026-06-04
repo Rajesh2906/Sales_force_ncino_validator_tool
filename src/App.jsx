@@ -2,6 +2,7 @@ import { useState } from 'react'
 import './App.css'
 import SyntaxValidator from './components/SyntaxValidator'
 import Preview from './components/Preview'
+import ncinoLogo from './assets/ncino.png'
 
 function App() {
   const [syntax, setSyntax] = useState('')
@@ -10,9 +11,10 @@ function App() {
   return (
     <div className="App">
       <header className="app-header">
-        <div className="header-content">
-          <h1>nCino Forms Gen Syntax Validator</h1>
-          <p>Validate and visualize nCino Forms Gen syntax</p>
+        <div className="header-content" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <img src={ncinoLogo} alt="nCino Logo" className="header-logo" style={{ height: '50px' }} />
+          <h3 style={{ margin: 0, fontSize: '18px' }}> Forms Gen Syntax Validator</h3>
+          {/* <p>Validate and visualize nCino Forms Gen syntax</p> */}
         </div>
       </header>
       
