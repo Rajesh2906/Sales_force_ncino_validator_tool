@@ -82,6 +82,18 @@ export function validateSyntax(input) {
     })
   }
 
+  // Check for improper curly bracket pairs (spaces within {{ or }})
+  const improperCurlyBrackets = /\{\s+\{|\}\s+\}|\{\s*\}(?!\{)/g
+  if (improperCurlyBrackets.test(input)) {
+    errors.push({
+      severity: 'error',
+      message: 'Curly brackets must be in pairs {{ and }} without spaces between them',
+      line: 1,
+      context: input,
+      suggestion: 'Use {{ to open and }} to close with no spaces between them'
+    })
+  }
+
   // Validate number of blocks
   if (blocks.length < 3) {
     errors.push({
@@ -148,6 +160,10 @@ export function validateSyntax(input) {
   const condErrors = validateCondBlocksStructure(blocks)
   errors.push(...condErrors)
 
+  // Validate COND values are present in IF condition
+  const condPresenceErrors = validateCondValuesInIF(blocks)
+  errors.push(...condPresenceErrors)
+
   return errors
 }
 
@@ -195,6 +211,17 @@ function validateBlock(block, blockIndex, fullInput) {
         suggestion: `Use exactly: {{${firstWord}}}`
       })
     }
+    // Check for leading/trailing spaces in SHOW_ROUTE or HIDE_ROUTE block
+    if (blockContent !== blockContent.trim()) {
+      errors.push({
+        severity: 'error',
+        message: `Block ${blockIndex}: ${firstWord} has leading or trailing spaces`,
+        line: 1,
+        blockIndex: blockIndex,
+        context: block,
+        suggestion: `Remove leading/trailing spaces from {{${firstWord}}}`
+      })
+    }
   }
   // Validate ENDIF
   else if (firstWord === 'ENDIF') {
@@ -206,6 +233,17 @@ function validateBlock(block, blockIndex, fullInput) {
         blockIndex: blockIndex,
         context: block,
         suggestion: 'Use exactly: {{ENDIF}}'
+      })
+    }
+    // Check for leading/trailing spaces in ENDIF block
+    if (blockContent !== blockContent.trim()) {
+      errors.push({
+        severity: 'error',
+        message: `Block ${blockIndex}: ENDIF has leading or trailing spaces`,
+        line: 1,
+        blockIndex: blockIndex,
+        context: block,
+        suggestion: 'Remove leading/trailing spaces from {{ENDIF}}'
       })
     }
   }
@@ -256,6 +294,12 @@ function validateIFBlock(blockContent, blockIndex, block) {
       context: block,
       suggestion: 'Remove spaces inside quotes'
     })
+  }
+
+  // Validate bracket matching in IF condition
+  const bracketError = validateBracketMatching(value, blockIndex, block)
+  if (bracketError) {
+    errors.push(bracketError)
   }
 
   return errors
@@ -339,6 +383,44 @@ function validateCONDBlock(blockContent, blockIndex, block) {
 }
 
 /**
+ * Validate that brackets are properly matched in condition
+ */
+function validateBracketMatching(condition, blockIndex, block) {
+  const openCount = (condition.match(/\(/g) || []).length
+  const closeCount = (condition.match(/\)/g) || []).length
+
+  if (openCount !== closeCount) {
+    return {
+      severity: 'error',
+      message: `Block ${blockIndex}: Unmatched parentheses in IF condition (${openCount} open, ${closeCount} close)`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Ensure all opening brackets ( have matching closing brackets )'
+    }
+  }
+
+  // Check for proper bracket nesting
+  let depth = 0
+  for (let i = 0; i < condition.length; i++) {
+    if (condition[i] === '(') depth++
+    if (condition[i] === ')') depth--
+    if (depth < 0) {
+      return {
+        severity: 'error',
+        message: `Block ${blockIndex}: Closing bracket ) before matching opening bracket ( in IF condition`,
+        line: 1,
+        blockIndex: blockIndex,
+        context: block,
+        suggestion: 'Ensure brackets are properly nested and ordered correctly'
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * Validate that COND blocks follow IF and come before SHOW_ROUTE/HIDE_ROUTE
  */
 function validateCondBlocksStructure(blocks) {
@@ -392,6 +474,59 @@ function validateCondBlocksStructure(blocks) {
         })
       }
       hasEndif = true
+    }
+  }
+
+  return errors
+}
+
+/**
+ * Validate that all COND values are referenced in the IF condition
+ */
+function validateCondValuesInIF(blocks) {
+  const errors = []
+  let ifCondition = null
+  const condValues = []
+
+  // Extract IF condition and COND values
+  for (let i = 0; i < blocks.length; i++) {
+    const blockContent = blocks[i].slice(2, -2)
+    const firstWord = blockContent.trim().split(/[\s=]/)[0]
+
+    if (firstWord === 'IF') {
+      const ifMatch = blockContent.match(/^IF\s*=\s*"([^"]*)"$/)
+      if (ifMatch) {
+        ifCondition = ifMatch[1]
+      }
+    } else if (firstWord === 'COND') {
+      const condMatch = blockContent.match(/^COND\s*=\s*"([^"]*)"\s*FIELD\s*=\s*"([^"]*)"\s*(IS|NOT)\s*=\s*"([^"]*)"$/)
+      if (condMatch) {
+        const condValue = condMatch[1].trim()
+        condValues.push({
+          value: condValue,
+          blockIndex: i + 1,
+          block: blocks[i]
+        })
+      }
+    }
+  }
+
+  // Check if each COND value is present in IF condition
+  if (ifCondition) {
+    for (const cond of condValues) {
+      // Check if the COND value (A, B, C, etc.) is present in the IF condition
+      // It should be a standalone value, not part of another word
+      const condValueRegex = new RegExp(`\\b${cond.value}\\b`)
+      if (!condValueRegex.test(ifCondition)) {
+        errors.push({
+          severity: 'error',
+          message: `Block ${cond.blockIndex}: COND value "${cond.value}" is not referenced in the IF condition`,
+          line: 1,
+          blockIndex: cond.blockIndex,
+          context: cond.block,
+          suggestion: `Ensure the COND value "${cond.value}" appears in the IF condition (e.g., IF="${cond.value} OR ...")`
+        })
+      }
     }
   }
 
