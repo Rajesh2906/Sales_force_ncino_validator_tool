@@ -331,6 +331,18 @@ function validateCONDBlock(blockContent, blockIndex, block) {
 
   const [, condValue, fieldValue, operator, operatorValue] = condMatch
 
+  // Check COND value is not empty (mandatory)
+  if (!condValue || condValue.trim().length === 0) {
+    errors.push({
+      severity: 'error',
+      message: `Block ${blockIndex}: COND value is mandatory and cannot be empty`,
+      line: 1,
+      blockIndex: blockIndex,
+      context: block,
+      suggestion: 'Provide a value for COND, e.g., {{COND="A" FIELD="value" IS="value"}}'
+    })
+  }
+
   // Check COND value for spaces
   if (condValue !== condValue.trim()) {
     errors.push({
@@ -417,6 +429,34 @@ function validateBracketMatching(condition, blockIndex, block) {
     }
   }
 
+  // Check for content between ) and ( (must have AND or OR)
+  const closingOpeningPattern = /\)\s*(?![OR])[^(]*\(/g
+  const matches = condition.match(/\)[^(]*\(/g) || []
+  for (const match of matches) {
+    const content = match.slice(1, -1).trim()
+    if (!content) {
+      return {
+        severity: 'error',
+        message: `Block ${blockIndex}: Missing AND/OR operator between closing ) and opening ( brackets in IF condition`,
+        line: 1,
+        blockIndex: blockIndex,
+        context: block,
+        suggestion: 'Add AND or OR between ) and ( operators, e.g., ) AND ('
+      }
+    }
+    // Check if the content is AND or OR
+    if (!/^(AND|OR)$/i.test(content)) {
+      return {
+        severity: 'error',
+        message: `Block ${blockIndex}: Invalid operator "${content}" between ) and ( in IF condition. Expected AND or OR`,
+        line: 1,
+        blockIndex: blockIndex,
+        context: block,
+        suggestion: 'Use AND or OR operators between ) and ( brackets'
+      }
+    }
+  }
+
   return null
 }
 
@@ -482,11 +522,13 @@ function validateCondBlocksStructure(blocks) {
 
 /**
  * Validate that all COND values are referenced in the IF condition
+ * and that all COND values referenced in IF condition exist in COND blocks
  */
 function validateCondValuesInIF(blocks) {
   const errors = []
   let ifCondition = null
   const condValues = []
+  const definedCondValues = new Set()
 
   // Extract IF condition and COND values
   for (let i = 0; i < blocks.length; i++) {
@@ -507,6 +549,7 @@ function validateCondValuesInIF(blocks) {
           blockIndex: i + 1,
           block: blocks[i]
         })
+        definedCondValues.add(condValue)
       }
     }
   }
@@ -525,6 +568,28 @@ function validateCondValuesInIF(blocks) {
           blockIndex: cond.blockIndex,
           context: cond.block,
           suggestion: `Ensure the COND value "${cond.value}" appears in the IF condition (e.g., IF="${cond.value} OR ...")`
+        })
+      }
+    }
+
+    // Extract all referenced COND values from IF condition (single letters or identifiers)
+    const referencedValues = ifCondition.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) || []
+    
+    // Check if all referenced values in IF condition have corresponding COND blocks
+    for (const refValue of referencedValues) {
+      // Skip AND and OR operators
+      if (refValue.toUpperCase() === 'AND' || refValue.toUpperCase() === 'OR') {
+        continue
+      }
+      
+      if (!definedCondValues.has(refValue)) {
+        errors.push({
+          severity: 'error',
+          message: `IF condition references COND value "${refValue}" which is not defined in any COND block`,
+          line: 1,
+          blockIndex: 1,
+          context: blocks[0],
+          suggestion: `Add a COND block with value "${refValue}", e.g., {{COND="${refValue}" FIELD="..." IS="..."}}`
         })
       }
     }
